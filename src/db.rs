@@ -14,7 +14,8 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use sea_orm::{
     ActiveModelTrait, ConnectOptions, ConnectionTrait, Database, DatabaseBackend,
-    DatabaseConnection, DbBackend, DbConn, DbErr, EntityTrait, IntoActiveModel, Statement,
+    DatabaseConnection, DbBackend, DbConn, DbErr, EntityTrait, ExprTrait, IntoActiveModel,
+    Statement,
 };
 use sea_orm_migration::MigratorTrait;
 use std::fmt::Write as FmtWrites;
@@ -279,7 +280,8 @@ use serde_json::{json, Value};
 pub async fn seed<A>(db: &DatabaseConnection, path: &str) -> crate::Result<()>
 where
     <<A as ActiveModelTrait>::Entity as EntityTrait>::Model: IntoActiveModel<A>,
-    for<'de> <<A as ActiveModelTrait>::Entity as EntityTrait>::Model: serde::de::Deserialize<'de> + serde::Serialize,
+    for<'de> <<A as ActiveModelTrait>::Entity as EntityTrait>::Model:
+        serde::de::Deserialize<'de> + serde::Serialize,
     A: ActiveModelTrait + Send + Sync,
     A: sea_orm::TryIntoModel<<<A as ActiveModelTrait>::Entity as EntityTrait>::Model>,
     sea_orm::Insert<A>: Send + Sync,
