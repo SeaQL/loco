@@ -185,6 +185,13 @@ pub async fn connect(config: &config::Database) -> Result<DbConn, sea_orm::DbErr
                 .await?;
             }
         }
+        bk => {
+            return Err(DbErr::BackendNotSupported {
+                db: bk.as_str(),
+                ctx: "connect",
+            }
+            .into())
+        }
     }
 
     Ok(db)
@@ -210,9 +217,11 @@ pub fn extract_db_name(conn_str: &str) -> AppResult<&str> {
 /// Returns a [`sea_orm::DbErr`] if an error occurs during run migration up.
 pub async fn create(db_uri: &str) -> AppResult<()> {
     if !db_uri.starts_with("postgres://") {
-        return Err(Error::string(
-            "Only Postgres databases are supported for table creation",
-        ));
+        return Err(DbErr::BackendNotSupported {
+            db: "Unknown",
+            ctx: "Only Postgres databases are supported for table creation",
+        }
+        .into());
     }
     let db_name = extract_db_name(db_uri).map_err(|_| {
         Error::string("The specified table name was not found in the given Postgres database URI")
@@ -356,10 +365,12 @@ async fn has_id_column(
                 .await?;
             result.is_some_and(|row| row.try_get::<i32>("", "count").unwrap_or(0) > 0)
         }
-        DatabaseBackend::MySql => {
-            return Err(Error::Message(
-                "Unsupported database backend: MySQL".to_string(),
-            ))
+        bk => {
+            return Err(DbErr::BackendNotSupported {
+                db: bk.as_str(),
+                ctx: "has_id_column",
+            }
+            .into());
         }
     };
 
@@ -398,10 +409,12 @@ async fn is_auto_increment(
                     .is_ok_and(|sql| sql.to_lowercase().contains("autoincrement"))
             })
         }
-        DatabaseBackend::MySql => {
-            return Err(Error::Message(
-                "Unsupported database backend: MySQL".to_string(),
-            ))
+        bk => {
+            return Err(DbErr::BackendNotSupported {
+                db: bk.as_str(),
+                ctx: "is_auto_increment",
+            }
+            .into());
         }
     };
     Ok(result)
@@ -451,10 +464,12 @@ pub async fn reset_autoincrement(
             ))
             .await?;
         }
-        DatabaseBackend::MySql => {
-            return Err(Error::Message(
-                "Unsupported database backend: MySQL".to_string(),
-            ))
+        bk => {
+            return Err(DbErr::BackendNotSupported {
+                db: bk.as_str(),
+                ctx: "reset_autoincrement",
+            }
+            .into());
         }
     }
     Ok(())
@@ -744,16 +759,18 @@ async fn create_postgres_database(
 /// unsupported database backend or a query execution issue.
 pub async fn get_tables(db: &DatabaseConnection) -> AppResult<Vec<String>> {
     let query = match db.get_database_backend() {
-        DatabaseBackend::MySql => {
-            return Err(Error::Message(
-                "Unsupported database backend: MySQL".to_string(),
-            ))
-        }
         DatabaseBackend::Postgres => {
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
         }
         DatabaseBackend::Sqlite => {
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        }
+        bk => {
+            return Err(DbErr::BackendNotSupported {
+                db: bk.as_str(),
+                ctx: "get_tables",
+            }
+            .into())
         }
     };
 
@@ -768,10 +785,9 @@ pub async fn get_tables(db: &DatabaseConnection) -> AppResult<Vec<String>> {
         .into_iter()
         .filter_map(|row| {
             let col = match db.get_database_backend() {
-                sea_orm::DatabaseBackend::MySql | sea_orm::DatabaseBackend::Postgres => {
-                    "table_name"
-                }
+                sea_orm::DatabaseBackend::Postgres => "table_name",
                 sea_orm::DatabaseBackend::Sqlite => "name",
+                _ => unreachable!(),
             };
 
             if let Ok(table_name) = row.try_get::<String>("", col) {
@@ -969,6 +985,13 @@ pub async fn dump_schema(ctx: &AppContext, fname: &str) -> crate::Result<()> {
                     }))
                 })
                 .collect::<Result<Vec<serde_json::Value>, DbErr>>()? // Specify error type explicitly
+        }
+        db => {
+            return Err(DbErr::BackendNotSupported {
+                db: db.as_str(),
+                ctx: "dump_schema",
+            }
+            .into())
         }
     };
     // Serialize schema info to JSON format
