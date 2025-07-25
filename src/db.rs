@@ -14,8 +14,8 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use sea_orm::{
     ActiveModelTrait, ConnectOptions, ConnectionTrait, Database, DatabaseBackend,
-    DatabaseConnection, DbBackend, DbConn, DbErr, EntityTrait, ExprTrait, IntoActiveModel,
-    Statement,
+    DatabaseConnection, DatabaseConnectionType, DbBackend, DbConn, DbErr, EntityTrait, ExprTrait,
+    IntoActiveModel, Statement,
 };
 use sea_orm_migration::MigratorTrait;
 use std::fmt::Write as FmtWrites;
@@ -86,8 +86,8 @@ impl MultiDb {
 /// This function will return an error if IO fails
 #[allow(clippy::match_wildcard_for_single_variants)]
 pub async fn verify_access(db: &DatabaseConnection) -> AppResult<()> {
-    match db {
-        DatabaseConnection::SqlxPostgresPoolConnection(_) => {
+    match db.inner {
+        DatabaseConnectionType::SqlxPostgresPoolConnection(_) => {
             let res = db
                 .query_all_raw(Statement::from_string(
                     DatabaseBackend::Postgres,
@@ -100,7 +100,7 @@ pub async fn verify_access(db: &DatabaseConnection) -> AppResult<()> {
                 ));
             }
         }
-        DatabaseConnection::Disconnected => {
+        DatabaseConnectionType::Disconnected => {
             return Err(Error::string("connection to database has been closed"));
         }
         _ => {}
