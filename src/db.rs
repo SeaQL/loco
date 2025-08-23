@@ -11,7 +11,8 @@ use fs_err::{self as fs, create_dir_all};
 use regex::Regex;
 use sea_orm::{
     ActiveModelTrait, ConnectOptions, ConnectionTrait, Database, DatabaseBackend,
-    DatabaseConnection, DbBackend, DbConn, DbErr, EntityTrait, IntoActiveModel, Statement,
+    DatabaseConnection, DatabaseConnectionType, DbBackend, DbConn, DbErr, EntityTrait,
+    IntoActiveModel, Statement,
 };
 use sea_orm_migration::MigratorTrait;
 use tracing::info;
@@ -77,10 +78,10 @@ impl MultiDb {
 /// This function will return an error if IO fails
 #[allow(clippy::match_wildcard_for_single_variants)]
 pub async fn verify_access(db: &DatabaseConnection) -> AppResult<()> {
-    match db {
-        DatabaseConnection::SqlxPostgresPoolConnection(_) => {
+    match db.inner {
+        DatabaseConnectionType::SqlxPostgresPoolConnection(_) => {
             let res = db
-                .query_all(Statement::from_string(
+                .query_all_raw(Statement::from_string(
                     DatabaseBackend::Postgres,
                     "SELECT * FROM pg_catalog.pg_tables WHERE tableowner = current_user;",
                 ))
@@ -91,7 +92,7 @@ pub async fn verify_access(db: &DatabaseConnection) -> AppResult<()> {
                 ));
             }
         }
-        DatabaseConnection::Disconnected => {
+        DatabaseConnectionType::Disconnected => {
             return Err(Error::string("connection to database has been closed"));
         }
         _ => {}
@@ -149,7 +150,7 @@ pub async fn connect(config: &config::Database) -> Result<DbConn, sea_orm::DbErr
     let db = Database::connect(opt).await?;
 
     if db.get_database_backend() == DatabaseBackend::Sqlite {
-        db.execute(Statement::from_string(
+        db.execute_raw(Statement::from_string(
             DatabaseBackend::Sqlite,
             "
             PRAGMA foreign_keys = ON;
@@ -255,6 +256,10 @@ where
     A: ActiveModelTrait + Send + Sync,
     sea_orm::Insert<A>: Send + Sync,
     <A as ActiveModelTrait>::Entity: EntityName,
+    A: sea_orm::TryIntoModel<
+        <<A as sea_orm::ActiveModelTrait>::Entity as sea_orm::EntityTrait>::Model,
+    >,
+    <<A as ActiveModelTrait>::Entity as EntityTrait>::Model: serde::Serialize,
 {
     // Deserialize YAML file into a vector of JSON values
     let seed_data: Vec<Value> = serde_yaml::from_reader(File::open(path)?)?;
@@ -310,7 +315,7 @@ async fn has_id_column(
           )"
             );
             let result = db
-                .query_one(Statement::from_string(DatabaseBackend::Postgres, query))
+                .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, query))
                 .await?;
             result.is_some_and(|row| row.try_get::<bool>("", "exists").unwrap_or(false))
         }
@@ -321,7 +326,7 @@ async fn has_id_column(
           WHERE name = 'id'"
             );
             let result = db
-                .query_one(Statement::from_string(DatabaseBackend::Sqlite, query))
+                .query_one_raw(Statement::from_string(DatabaseBackend::Sqlite, query))
                 .await?;
             result.is_some_and(|row| row.try_get::<i32>("", "count").unwrap_or(0) > 0)
         }
@@ -330,6 +335,7 @@ async fn has_id_column(
                 "Unsupported database backend: MySQL".to_string(),
             ))
         }
+        _ => unimplemented!(),
     };
 
     Ok(result)
@@ -352,7 +358,7 @@ async fn is_auto_increment(
                 "SELECT pg_get_serial_sequence('{table_name}', 'id') IS NOT NULL as is_serial"
             );
             let result = db
-                .query_one(Statement::from_string(DatabaseBackend::Postgres, query))
+                .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, query))
                 .await?;
             result.is_some_and(|row| row.try_get::<bool>("", "is_serial").unwrap_or(false))
         }
@@ -360,7 +366,7 @@ async fn is_auto_increment(
             let query =
                 format!("SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'");
             let result = db
-                .query_one(Statement::from_string(DatabaseBackend::Sqlite, query))
+                .query_one_raw(Statement::from_string(DatabaseBackend::Sqlite, query))
                 .await?;
             result.is_some_and(|row| {
                 row.try_get::<String>("", "sql")
@@ -372,6 +378,7 @@ async fn is_auto_increment(
                 "Unsupported database backend: MySQL".to_string(),
             ))
         }
+        _ => unimplemented!(),
     };
     Ok(result)
 }
@@ -401,7 +408,7 @@ pub async fn reset_autoincrement(
                 "SELECT setval(pg_get_serial_sequence('{table_name}', 'id'), COALESCE(MAX(id), 0) \
                  + 1, false) FROM {table_name}"
             );
-            db.execute(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 &query_str,
                 vec![],
@@ -413,7 +420,7 @@ pub async fn reset_autoincrement(
                 "UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM {table_name}) WHERE name = \
                  '{table_name}'"
             );
-            db.execute(Statement::from_sql_and_values(
+            db.execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Sqlite,
                 &query_str,
                 vec![],
@@ -425,6 +432,7 @@ pub async fn reset_autoincrement(
                 "Unsupported database backend: MySQL".to_string(),
             ))
         }
+        _ => unimplemented!(),
     }
     Ok(())
 }
@@ -585,7 +593,7 @@ async fn create_postgres_database(
     let query = format!("CREATE DATABASE {db_name} WITH {with_options}");
     tracing::info!(query, "creating postgres database");
 
-    db.execute(sea_orm::Statement::from_string(
+    db.execute_raw(sea_orm::Statement::from_string(
         sea_orm::DatabaseBackend::Postgres,
         query,
     ))
@@ -613,10 +621,11 @@ pub async fn get_tables(db: &DatabaseConnection) -> AppResult<Vec<String>> {
         DatabaseBackend::Sqlite => {
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         }
+        _ => unimplemented!(),
     };
 
     let result = db
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             db.get_database_backend(),
             query.to_string(),
         ))
@@ -630,6 +639,7 @@ pub async fn get_tables(db: &DatabaseConnection) -> AppResult<Vec<String>> {
                     "table_name"
                 }
                 sea_orm::DatabaseBackend::Sqlite => "name",
+                _ => unimplemented!(),
             };
 
             if let Ok(table_name) = row.try_get::<String>("", col) {
@@ -674,7 +684,7 @@ pub async fn dump_tables(
         tracing::info!(table, "get table data");
 
         let data_result = db
-            .query_all(Statement::from_string(
+            .query_all_raw(Statement::from_string(
                 db.get_database_backend(),
                 format!(r#"SELECT * FROM "{table}""#),
             ))
@@ -780,7 +790,7 @@ pub async fn dump_schema(ctx: &AppContext, fname: &str) -> crate::Result<()> {
                 ORDER BY table_name, ordinal_position;
             ";
             let stmt = Statement::from_string(DbBackend::Postgres, query.to_owned());
-            let rows = db.query_all(stmt).await?;
+            let rows = db.query_all_raw(stmt).await?;
             rows.into_iter()
                 .map(|row| {
                     // Wrap the closure in a Result to handle errors properly
@@ -800,7 +810,7 @@ pub async fn dump_schema(ctx: &AppContext, fname: &str) -> crate::Result<()> {
                 ORDER BY TABLE_NAME, ORDINAL_POSITION;
             ";
             let stmt = Statement::from_string(DbBackend::MySql, query.to_owned());
-            let rows = db.query_all(stmt).await?;
+            let rows = db.query_all_raw(stmt).await?;
             rows.into_iter()
                 .map(|row| {
                     // Wrap the closure in a Result to handle errors properly
@@ -820,7 +830,7 @@ pub async fn dump_schema(ctx: &AppContext, fname: &str) -> crate::Result<()> {
                 ORDER BY name;
             ";
             let stmt = Statement::from_string(DbBackend::Sqlite, query.to_owned());
-            let rows = db.query_all(stmt).await?;
+            let rows = db.query_all_raw(stmt).await?;
             rows.into_iter()
                 .map(|row| {
                     // Wrap the closure in a Result to handle errors properly
@@ -831,6 +841,7 @@ pub async fn dump_schema(ctx: &AppContext, fname: &str) -> crate::Result<()> {
                 })
                 .collect::<Result<Vec<serde_json::Value>, DbErr>>()? // Specify error type explicitly
         }
+        _ => unimplemented!(),
     };
     // Serialize schema info to JSON format
     let schema_json = serde_json::to_string_pretty(&schema_info)?;

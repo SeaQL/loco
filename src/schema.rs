@@ -462,6 +462,7 @@ pub async fn add_reference(
                 .await?;
             */
         }
+        _ => unimplemented!(),
     }
     Ok(())
 }
@@ -509,6 +510,7 @@ pub async fn remove_reference(
             // sqlite will not allow it.
             // more: https://www.bigbinary.com/blog/rails-6-adds-add_foreign_key-and-remove_foreign_key-for-sqlite3
         }
+        _ => unimplemented!(),
     }
     Ok(())
 }
