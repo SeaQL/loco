@@ -64,7 +64,7 @@ reqwest = { version = "0.12.7", features = [
 ], default-features = false }
 
 
-sea-orm = { version = "1.1.0", features = [
+sea-orm = { version = "~2.0.0-rc", features = [
     "sqlx-postgres",        # `DATABASE_DRIVER` feature
     "sqlx-sqlite",
     "runtime-tokio-rustls",
@@ -183,7 +183,7 @@ tower-http = { version = "0.6.1", features = [
 
 [dependencies.sea-orm-migration]
 optional = true
-version = "1.0.0"
+version = "~2.0.0-rc"
 features = [
     # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.
     # View the list of supported features at https://www.sea-ql.org/SeaORM/docs/install-and-config/database-and-async-runtime.
