@@ -37,7 +37,7 @@ const QUEUE_CONN_FAILED: &str = "queue connection: failed";
 const QUEUE_NOT_CONFIGURED: &str = "queue not configured?";
 
 // versions health
-const MIN_SEAORMCLI_VER: &str = "1.1.0";
+const MIN_SEAORMCLI_VER: &str = "2.0.0-rc";
 static MIN_DEP_VERSIONS: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 static RE_CRATE_VERSION: OnceLock<Regex> = OnceLock::new();
 
